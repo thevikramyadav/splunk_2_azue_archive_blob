@@ -1,7 +1,7 @@
 import sys, os, gzip, shutil, logging
 from logging.handlers import RotatingFileHandler
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
-from azure.core.exceptions import ResourceExistsError, AzureError
+from azure.core.exceptions import ResourceExistsError
 
 # Get $SPLUNK_HOME from environment variables
 splunk_home = os.getenv('SPLUNK_HOME')
@@ -19,11 +19,11 @@ log_handler.setFormatter(formatter)
 logging.basicConfig(level=logging.INFO, handlers=[log_handler])
 
 # Azure Blob Storage configuration
-AZURE_CONNECTION_STRING = 'your-azure-connection-string'
-CONTAINER_NAME = 'splunk-archive-container'
+AZURE_STORAGE_CONNECTION_STRING = 'your-azure-connection-string'  # Add your Azure connection string here
+AZURE_CONTAINER_NAME = 'your-container-name'  # Replace with your Blob container name
 
-# Initialize Azure Blob Service Client
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+# Initialize Blob service client
+blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
 
 # Function to extract index name from the bucket path
 def get_index_name_from_bucket(bucket_path):
@@ -37,16 +37,16 @@ def get_index_name_from_bucket(bucket_path):
         sys.exit(1)
 
 # Upload the archived bucket to Azure Blob Storage
-def upload_to_azure(file_path, blob_name):
+def upload_to_blob(file_path, blob_name):
     try:
-        blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=blob_name)
+        blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
         with open(file_path, "rb") as data:
             blob_client.upload_blob(data, overwrite=True)
-        logging.info(f"Successfully uploaded {file_path} to Azure Blob Storage as {blob_name}")
-    except ResourceExistsError:
-        logging.warning(f"Blob {blob_name} already exists. Skipping upload.")
-    except AzureError as e:
-        logging.error(f"Failed to upload {file_path}. Error: {str(e)}")
+        logging.info(f"Successfully uploaded {file_path} to {AZURE_CONTAINER_NAME}/{blob_name}")
+    except FileNotFoundError:
+        logging.error(f"File {file_path} not found.")
+    except Exception as e:
+        logging.error(f"Failed to upload {file_path} to Azure. Error: {str(e)}")
 
 # For new-style buckets (v4.2+), we can remove all files except for the rawdata.
 def handleNewBucket(base, files):
@@ -93,11 +93,11 @@ if __name__ == "__main__":
     
     # Use below archive directory if splunk_db variable is not set
     ARCHIVE_DIR = os.path.join('/coldvolume/splunkdb/splunk', index_name, 'colddb')
-    AZURE_CONTAINER_FOLDER = f'frozen-buckets/{index_name}/'
+    BLOB_CONTAINER_FOLDER = f'frozen-buckets/{index_name}/'
 
     # Log the constructed paths
     logging.info(f"Archive directory: {ARCHIVE_DIR}")
-    logging.info(f"Azure Blob Container folder: {AZURE_CONTAINER_FOLDER}")
+    logging.info(f"Azure Blob container folder: {BLOB_CONTAINER_FOLDER}")
 
     # Create archive directory if it doesn't exist
     if not os.path.isdir(ARCHIVE_DIR):
@@ -135,5 +135,5 @@ if __name__ == "__main__":
     for root, dirs, files in os.walk(destdir):
         for file in files:
             file_path = os.path.join(root, file)
-            blob_name = os.path.join(AZURE_CONTAINER_FOLDER, os.path.relpath(file_path, ARCHIVE_DIR))
-            upload_to_azure(file_path, blob_name)
+            blob_name = os.path.join(BLOB_CONTAINER_FOLDER, os.path.relpath(file_path, ARCHIVE_DIR))
+            upload_to_blob(file_path, blob_name)
